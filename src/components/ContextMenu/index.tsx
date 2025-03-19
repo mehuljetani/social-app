@@ -60,6 +60,7 @@ import {
   useContextMenuMenuContext,
 } from '#/components/ContextMenu/context'
 import {
+  AuxillaryViewProps,
   ContextType,
   ItemIconProps,
   ItemProps,
@@ -401,6 +402,50 @@ function TriggerClone({
   )
 }
 
+export function AuxillaryView({children, align = 'left'}: AuxillaryViewProps) {
+  const context = useContextMenuContext()
+  const {width: screenWidth} = useWindowDimensions()
+
+  const {isOpen, measurement, translationSV, animationSV} = context
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: clamp(animationSV.get(), 0, 1),
+    transform: [
+      {translateY: translationSV.get() * animationSV.get()},
+      {scale: interpolate(animationSV.get(), [0, 1], [0.2, 1])},
+    ],
+  }))
+
+  const menuContext = useMemo(() => ({align}), [align])
+
+  if (!isOpen || !measurement) return null
+
+  return (
+    <Portal>
+      <Context.Provider value={context}>
+        <MenuContext.Provider value={menuContext}>
+          <Animated.View
+            style={[
+              a.absolute,
+              {
+                top: measurement.y,
+                transformOrigin:
+                  align === 'left' ? 'bottom left' : 'bottom right',
+              },
+              align === 'left'
+                ? {left: measurement.x}
+                : {right: screenWidth - measurement.x - measurement.width},
+              animatedStyle,
+              a.z_10,
+            ]}>
+            {children}
+          </Animated.View>
+        </MenuContext.Provider>
+      </Context.Provider>
+    </Portal>
+  )
+}
+
 const MENU_WIDTH = 230
 
 export function Outer({
@@ -549,7 +594,15 @@ export function Outer({
   )
 }
 
-export function Item({children, label, style, onPress, ...rest}: ItemProps) {
+export function Item({
+  children,
+  label,
+  unstyled,
+  style,
+  onPress,
+  position,
+  ...rest
+}: ItemProps) {
   const t = useTheme()
   const context = useContextMenuContext()
   const playHaptic = useHaptics()
@@ -570,16 +623,22 @@ export function Item({children, label, style, onPress, ...rest}: ItemProps) {
 
       const layout = evt.nativeEvent.layout
 
+      const yOffset = position
+        ? position.y
+        : measurement.y + measurement.height + tokens.space.xs
+      const xOffset = position
+        ? position.x
+        : align === 'left'
+        ? measurement.x
+        : measurement.x + measurement.width - layout.width
+
       registerHoverable(
         id,
         {
           width: layout.width,
           height: layout.height,
-          y: measurement.y + measurement.height + tokens.space.xs + layout.y,
-          x:
-            align === 'left'
-              ? measurement.x
-              : measurement.x + measurement.width - layout.width,
+          y: yOffset + layout.y,
+          x: xOffset + layout.x,
         },
         () => {
           close()
@@ -587,7 +646,7 @@ export function Item({children, label, style, onPress, ...rest}: ItemProps) {
         },
       )
     },
-    [id, measurement, registerHoverable, close, onPress, align],
+    [id, measurement, registerHoverable, close, onPress, align, position],
   )
 
   const itemContext = useMemo(
@@ -617,22 +676,27 @@ export function Item({children, label, style, onPress, ...rest}: ItemProps) {
         rest.onPressOut?.(e)
       }}
       style={[
-        a.flex_row,
-        a.align_center,
-        a.gap_sm,
-        a.py_sm,
-        a.px_md,
-        a.rounded_md,
-        a.border,
-        t.atoms.bg_contrast_25,
-        t.atoms.border_contrast_low,
-        {minHeight: 40},
+        !unstyled && [
+          a.flex_row,
+          a.align_center,
+          a.gap_sm,
+          a.py_sm,
+          a.px_md,
+          a.rounded_md,
+          a.border,
+          t.atoms.bg_contrast_25,
+          t.atoms.border_contrast_low,
+          {minHeight: 40},
+          (focused || pressed || context.hoveredMenuItem === id) &&
+            !rest.disabled &&
+            t.atoms.bg_contrast_50,
+        ],
         style,
-        (focused || pressed || context.hoveredMenuItem === id) &&
-          !rest.disabled && [t.atoms.bg_contrast_50],
       ]}>
       <ItemContext.Provider value={itemContext}>
-        {children}
+        {typeof children === 'function'
+          ? children(focused || pressed || context.hoveredMenuItem === id)
+          : children}
       </ItemContext.Provider>
     </Pressable>
   )
